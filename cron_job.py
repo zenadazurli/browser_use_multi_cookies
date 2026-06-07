@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# app.py - Web service per generare cookie per tutti gli account
+# cron_job.py - Versione per cron job (esegue e salva su Supabase)
 
 import asyncio
 import os
@@ -8,14 +8,21 @@ from datetime import datetime
 from supabase import create_client
 from browser_use_sdk import AsyncBrowserUse
 from playwright.async_api import async_playwright
-from flask import Flask, jsonify, request
-from config import ACCOUNTS, DEFAULT_PASSWORD, SERVICE_NAME, SERVICE_VERSION
 
 # ==================== CONFIGURAZIONE ====================
 KEYS_SUPABASE_URL = os.environ.get("KEYS_SUPABASE_URL", "https://kdqzfsmibquvvobjvjlj.supabase.co")
-KEYS_SUPABASE_KEY = os.environ.get("KEYS_SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtkcXpmc21pYnF1dnZvYmp2amxqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDc2MzgyMywiZXhwIjoyMDk2MzM5ODIzfQ.IQ7frzgVPgyjix9gypSkka5jAfRzdj02028-4xdT3_Y")
+KEYS_SUPABASE_KEY = os.environ.get("KEYS_SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")
 
-app = Flask(__name__)
+COOKIE_SUPABASE_URL = os.environ.get("COOKIE_SUPABASE_URL", "https://ofijopixtpwahgbwyutc.supabase.co")
+COOKIE_SUPABASE_KEY = os.environ.get("COOKIE_SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")
+
+DEFAULT_PASSWORD = "DDnmVV45!!"
+
+# Account
+ACCOUNTS = [
+    {'email': 'sandrominori50+ulugarecexisa@gmail.com', 'name': 'ulugarecexisa'},
+    # ... tutti i 35 account
+]
 
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
@@ -24,7 +31,7 @@ def get_random_working_key():
     try:
         supabase = create_client(KEYS_SUPABASE_URL, KEYS_SUPABASE_KEY)
         resp = supabase.table('browser_use_keys')\
-            .select('id', 'api_key')\
+            .select('api_key')\
             .eq('status', 'working')\
             .execute()
         if not resp.data:
@@ -34,10 +41,25 @@ def get_random_working_key():
         log(f"❌ Errore Supabase: {e}")
         return None
 
-def extract_nome_utente(email):
-    if '+' in email:
-        return email.split('+')[1].split('@')[0]
-    return email.split('@')[0]
+def save_cookie_to_db(email, nome_utente, cookie_string, sesids, user_id):
+    try:
+        supabase = create_client(COOKIE_SUPABASE_URL, COOKIE_SUPABASE_KEY)
+        divella_format = f"{nome_utente}|{cookie_string}"
+        data = {
+            'email': email,
+            'nome_utente': nome_utente,
+            'divella_format': divella_format,
+            'cookie_string': cookie_string,
+            'sesids': sesids,
+            'user_id': user_id,
+            'status': 'active',
+            'updated_at': datetime.now().isoformat()
+        }
+        supabase.table('account_cookies').upsert(data, on_conflict='email').execute()
+        return True
+    except Exception as e:
+        log(f"❌ Errore salvataggio: {e}")
+        return False
 
 async def generate_cookie_for_account(api_key, account):
     email = account['email']
@@ -57,12 +79,14 @@ async def generate_cookie_for_account(api_key, account):
             page = pw_browser.contexts[0].pages[0]
             
             await page.goto("https://www.easyhits4u.com/logon/")
-            await page.wait_for_timeout(3000)
+            await page.wait_for_timeout(5000)
             
             await page.fill('#username', email)
             await page.fill('#password', DEFAULT_PASSWORD)
             await page.keyboard.press('Enter')
-            await page.wait_for_timeout(30000)
+            
+            # Attesa più lunga (45 secondi)
+            await page.wait_for_timeout(45000)
             
             cookies = await page.context.cookies()
             cookie_string = '; '.join([f"{c['name']}={c['value']}" for c in cookies])
@@ -72,117 +96,42 @@ async def generate_cookie_for_account(api_key, account):
             if sesids and user_id:
                 divella_format = f"{nome}|{cookie_string}"
                 log(f"   ✅ OK - sesids={sesids}")
-                return True, divella_format, sesids, user_id
+                save_cookie_to_db(email, nome, cookie_string, sesids, user_id)
+                return True, divella_format
             else:
                 log(f"   ❌ Cookie non trovati")
-                return False, None, None, None
+                return False, None
             
     except Exception as e:
         log(f"   ❌ Errore: {str(e)[:80]}")
-        return False, None, None, None
+        return False, None
     finally:
         if profile:
             await client.profiles.delete(profile.id)
         await client.close()
 
-async def generate_all_cookies(api_key):
-    results = []
-    success_count = 0
-    
-    for i, account in enumerate(ACCOUNTS):
-        log(f"\n📌 [{i+1}/{len(ACCOUNTS)}]")
-        success, divella_format, sesids, user_id = await generate_cookie_for_account(api_key, account)
-        
-        if success:
-            success_count += 1
-            results.append({
-                'account': account['name'],
-                'email': account['email'],
-                'sesids': sesids,
-                'user_id': user_id,
-                'divella_format': divella_format
-            })
-        
-        if i < len(ACCOUNTS) - 1:
-            await asyncio.sleep(5)
-    
-    return success_count, results
-
-# ==================== ENDPOINT API ====================
-@app.route('/')
-def home():
-    return jsonify({
-        'service': SERVICE_NAME,
-        'version': SERVICE_VERSION,
-        'accounts_total': len(ACCOUNTS),
-        'endpoints': {
-            '/health': 'GET - Health check',
-            '/cookies': 'GET - Genera cookie per TUTTI gli account',
-            '/cookies?account=nome': 'GET - Genera cookie per un account specifico',
-            '/cookies/list': 'GET - Lista account disponibili'
-        }
-    })
-
-@app.route('/health')
-def health():
-    return jsonify({'status': 'ok', 'timestamp': datetime.now().isoformat()})
-
-@app.route('/cookies/list')
-def list_accounts():
-    return jsonify({
-        'total': len(ACCOUNTS),
-        'accounts': [{'name': a['name'], 'email': a['email']} for a in ACCOUNTS]
-    })
-
-@app.route('/cookies')
-def get_cookies():
-    account_name = request.args.get('account')
-    
-    if account_name:
-        account = next((a for a in ACCOUNTS if a['name'] == account_name), None)
-        if not account:
-            return jsonify({'error': f'Account "{account_name}" non trovato'}), 404
-        
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        api_key = get_random_working_key()
-        if not api_key:
-            return jsonify({'error': 'Nessuna chiave working'}), 500
-        
-        success, divella_format, sesids, user_id = loop.run_until_complete(
-            generate_cookie_for_account(api_key, account)
-        )
-        
-        if success:
-            return jsonify({
-                'success': True,
-                'account': account['name'],
-                'email': account['email'],
-                'sesids': sesids,
-                'user_id': user_id,
-                'divella_format': divella_format
-            })
-        else:
-            return jsonify({'success': False, 'error': 'Generazione fallita'}), 500
-    
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+async def main():
+    log("=" * 60)
+    log("CRON JOB - GENERAZIONE COOKIE")
+    log(f"Account: {len(ACCOUNTS)}")
+    log("=" * 60)
     
     api_key = get_random_working_key()
     if not api_key:
-        return jsonify({'error': 'Nessuna chiave working'}), 500
+        log("❌ Nessuna chiave working")
+        return
     
-    success_count, results = loop.run_until_complete(generate_all_cookies(api_key))
+    log(f"🔑 Chiave: {api_key[:20]}...")
     
-    return jsonify({
-        'success': True,
-        'timestamp': datetime.now().isoformat(),
-        'total_accounts': len(ACCOUNTS),
-        'success_count': success_count,
-        'failed_count': len(ACCOUNTS) - success_count,
-        'results': results
-    })
+    successi = 0
+    for i, account in enumerate(ACCOUNTS):
+        log(f"\n📌 [{i+1}/{len(ACCOUNTS)}]")
+        success, _ = await generate_cookie_for_account(api_key, account)
+        if success:
+            successi += 1
+        await asyncio.sleep(5)
+    
+    log(f"\n✅ Completato: {successi}/{len(ACCOUNTS)} successi")
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=10000)
+    asyncio.run(main())
