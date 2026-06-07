@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
-# cron_job.py - Versione per cron job (esegue e salva su Supabase)
+# cron_job.py - Versione per cron job con chiusura forzata sessioni
 
 import asyncio
 import os
 import random
+import gc
 from datetime import datetime
 from supabase import create_client
 from browser_use_sdk import AsyncBrowserUse
 from playwright.async_api import async_playwright
-
-# Importa account da config.py
-from config import ACCOUNTS, DEFAULT_PASSWORD
 
 # ==================== CONFIGURAZIONE ====================
 KEYS_SUPABASE_URL = os.environ.get("KEYS_SUPABASE_URL", "https://kdqzfsmibquvvobjvjlj.supabase.co")
@@ -18,6 +16,18 @@ KEYS_SUPABASE_KEY = os.environ.get("KEYS_SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR
 
 COOKIE_SUPABASE_URL = os.environ.get("COOKIE_SUPABASE_URL", "https://ofijopixtpwahgbwyutc.supabase.co")
 COOKIE_SUPABASE_KEY = os.environ.get("COOKIE_SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")
+
+DEFAULT_PASSWORD = "DDnmVV45!!"
+
+# Account (importa da config)
+try:
+    from config import ACCOUNTS
+except ImportError:
+    # Fallback per test
+    ACCOUNTS = [
+        {'email': 'sandrominori50+ulugarecexisa@gmail.com', 'name': 'ulugarecexisa'},
+        {'email': 'sandrominori50+ukageluli@gmail.com', 'name': 'ukageluli'},
+    ]
 
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
@@ -51,9 +61,10 @@ def save_cookie_to_db(email, nome_utente, cookie_string, sesids, user_id):
             'updated_at': datetime.now().isoformat()
         }
         supabase.table('account_cookies').upsert(data, on_conflict='email').execute()
+        log(f"   💾 Salvato su Supabase")
         return True
     except Exception as e:
-        log(f"❌ Errore salvataggio: {e}")
+        log(f"   ❌ Errore salvataggio: {e}")
         return False
 
 async def generate_cookie_for_account(api_key, account):
@@ -80,7 +91,7 @@ async def generate_cookie_for_account(api_key, account):
             await page.fill('#password', DEFAULT_PASSWORD)
             await page.keyboard.press('Enter')
             
-            # Attesa più lunga (45 secondi)
+            # Attesa per redirect (45 secondi)
             await page.wait_for_timeout(45000)
             
             cookies = await page.context.cookies()
@@ -89,7 +100,6 @@ async def generate_cookie_for_account(api_key, account):
             user_id = next((c['value'] for c in cookies if c['name'] == 'user_id'), None)
             
             if sesids and user_id:
-                divella_format = f"{nome}|{cookie_string}"
                 log(f"   ✅ OK - sesids={sesids}")
                 save_cookie_to_db(email, nome, cookie_string, sesids, user_id)
                 return True, divella_format
@@ -98,12 +108,28 @@ async def generate_cookie_for_account(api_key, account):
                 return False, None
             
     except Exception as e:
-        log(f"   ❌ Errore: {str(e)[:80]}")
+        error_msg = str(e)
+        if "429" in error_msg:
+            log(f"   ❌ RATE LIMIT (429) - aspetto prima di continuare")
+        else:
+            log(f"   ❌ Errore: {error_msg[:80]}")
         return False, None
     finally:
+        # === CHIUSURA FORZATA ===
         if profile:
-            await client.profiles.delete(profile.id)
-        await client.close()
+            try:
+                await client.profiles.delete(profile.id)
+                log(f"   🗑️ Profilo {profile.id} eliminato")
+            except:
+                pass
+        try:
+            await client.close()
+            log(f"   🔒 Client chiuso")
+        except:
+            pass
+        # Pausa extra per permettere la chiusura completa
+        await asyncio.sleep(2)
+        gc.collect()  # Forza garbage collection
 
 async def main():
     log("=" * 60)
@@ -119,14 +145,31 @@ async def main():
     log(f"🔑 Chiave: {api_key[:20]}...")
     
     successi = 0
+    falliti = 0
+    rate_limits = 0
+    
     for i, account in enumerate(ACCOUNTS):
         log(f"\n📌 [{i+1}/{len(ACCOUNTS)}]")
+        
         success, _ = await generate_cookie_for_account(api_key, account)
+        
         if success:
             successi += 1
-        await asyncio.sleep(5)
+        else:
+            falliti += 1
+        
+        # === PAUSA TRA GLI ACCOUNT (20 secondi) ===
+        if i < len(ACCOUNTS) - 1:
+            log(f"   ⏳ Pausa 20 secondi prima del prossimo account...")
+            await asyncio.sleep(20)
     
-    log(f"\n✅ Completato: {successi}/{len(ACCOUNTS)} successi")
+    log("\n" + "=" * 60)
+    log("📊 RIEPILOGO FINALE")
+    log("=" * 60)
+    log(f"✅ Successi: {successi}")
+    log(f"❌ Falliti: {falliti}")
+    log(f"📊 Totale: {len(ACCOUNTS)}")
+    log("=" * 60)
 
 if __name__ == "__main__":
     asyncio.run(main())
