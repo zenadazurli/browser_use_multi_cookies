@@ -1,0 +1,19 @@
+services:
+  - type: cron
+    name: browser-use-multi-cookies
+    schedule: "0 */2 * * *"  # Ogni 2 ore
+    runtime: python
+    buildCommand: |
+      pip install -r requirements.txt
+      playwright install chromium
+      playwright install-deps
+    startCommand: python cron_job.py
+    envVars:
+      - key: KEYS_SUPABASE_URL
+        sync: false
+      - key: KEYS_SUPABASE_KEY
+        sync: false
+      - key: COOKIE_SUPABASE_URL
+        sync: false
+      - key: COOKIE_SUPABASE_KEY
+        sync: false
