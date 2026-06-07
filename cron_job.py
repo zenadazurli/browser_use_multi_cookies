@@ -9,20 +9,15 @@ from supabase import create_client
 from browser_use_sdk import AsyncBrowserUse
 from playwright.async_api import async_playwright
 
+# Importa account da config.py
+from config import ACCOUNTS, DEFAULT_PASSWORD
+
 # ==================== CONFIGURAZIONE ====================
 KEYS_SUPABASE_URL = os.environ.get("KEYS_SUPABASE_URL", "https://kdqzfsmibquvvobjvjlj.supabase.co")
 KEYS_SUPABASE_KEY = os.environ.get("KEYS_SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")
 
 COOKIE_SUPABASE_URL = os.environ.get("COOKIE_SUPABASE_URL", "https://ofijopixtpwahgbwyutc.supabase.co")
 COOKIE_SUPABASE_KEY = os.environ.get("COOKIE_SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")
-
-DEFAULT_PASSWORD = "DDnmVV45!!"
-
-# Account
-ACCOUNTS = [
-    {'email': 'sandrominori50+ulugarecexisa@gmail.com', 'name': 'ulugarecexisa'},
-    # ... tutti i 35 account
-]
 
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
