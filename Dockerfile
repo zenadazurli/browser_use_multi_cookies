@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install browser-use-sdk playwright supabase flask
+RUN pip install browser-use-sdk playwright supabase
 RUN playwright install chromium
 RUN playwright install-deps
 
@@ -14,8 +14,6 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 COPY config.py .
-COPY app.py .
+COPY cron_job.py .
 
-EXPOSE 10000
-
-CMD ["python", "-u", "app.py"]
+CMD ["python", "-u", "cron_job.py"]
