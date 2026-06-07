@@ -12,10 +12,10 @@ from playwright.async_api import async_playwright
 
 # ==================== CONFIGURAZIONE ====================
 KEYS_SUPABASE_URL = os.environ.get("KEYS_SUPABASE_URL", "https://kdqzfsmibquvvobjvjlj.supabase.co")
-KEYS_SUPABASE_KEY = os.environ.get("KEYS_SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")
+KEYS_SUPABASE_KEY = os.environ.get("KEYS_SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtkcXpmc21pYnF1dnZvYmp2amxqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDc2MzgyMywiZXhwIjoyMDk2MzM5ODIzfQ.IQ7frzgVPgyjix9gypSkka5jAfRzdj02028-4xdT3_Y")
 
 COOKIE_SUPABASE_URL = os.environ.get("COOKIE_SUPABASE_URL", "https://ofijopixtpwahgbwyutc.supabase.co")
-COOKIE_SUPABASE_KEY = os.environ.get("COOKIE_SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")
+COOKIE_SUPABASE_KEY = os.environ.get("COOKIE_SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9maWpvcGl4dHB3YWhnYnd5dXRjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTkyODIxMiwiZXhwIjoyMDkxNTA0MjEyfQ.BkWb8EuUUJSUUgg3sepDmOdUzsXY7pjGjykQnPMK9q4")
 
 DEFAULT_PASSWORD = "DDnmVV45!!"
 
@@ -23,7 +23,6 @@ DEFAULT_PASSWORD = "DDnmVV45!!"
 try:
     from config import ACCOUNTS
 except ImportError:
-    # Fallback per test
     ACCOUNTS = [
         {'email': 'sandrominori50+ulugarecexisa@gmail.com', 'name': 'ulugarecexisa'},
         {'email': 'sandrominori50+ukageluli@gmail.com', 'name': 'ukageluli'},
@@ -91,7 +90,6 @@ async def generate_cookie_for_account(api_key, account):
             await page.fill('#password', DEFAULT_PASSWORD)
             await page.keyboard.press('Enter')
             
-            # Attesa per redirect (45 secondi)
             await page.wait_for_timeout(45000)
             
             cookies = await page.context.cookies()
@@ -100,6 +98,7 @@ async def generate_cookie_for_account(api_key, account):
             user_id = next((c['value'] for c in cookies if c['name'] == 'user_id'), None)
             
             if sesids and user_id:
+                divella_format = f"{nome}|{cookie_string}"
                 log(f"   ✅ OK - sesids={sesids}")
                 save_cookie_to_db(email, nome, cookie_string, sesids, user_id)
                 return True, divella_format
@@ -110,12 +109,11 @@ async def generate_cookie_for_account(api_key, account):
     except Exception as e:
         error_msg = str(e)
         if "429" in error_msg:
-            log(f"   ❌ RATE LIMIT (429) - aspetto prima di continuare")
+            log(f"   ❌ RATE LIMIT (429)")
         else:
             log(f"   ❌ Errore: {error_msg[:80]}")
         return False, None
     finally:
-        # === CHIUSURA FORZATA ===
         if profile:
             try:
                 await client.profiles.delete(profile.id)
@@ -127,9 +125,8 @@ async def generate_cookie_for_account(api_key, account):
             log(f"   🔒 Client chiuso")
         except:
             pass
-        # Pausa extra per permettere la chiusura completa
         await asyncio.sleep(2)
-        gc.collect()  # Forza garbage collection
+        gc.collect()
 
 async def main():
     log("=" * 60)
@@ -146,7 +143,6 @@ async def main():
     
     successi = 0
     falliti = 0
-    rate_limits = 0
     
     for i, account in enumerate(ACCOUNTS):
         log(f"\n📌 [{i+1}/{len(ACCOUNTS)}]")
@@ -158,7 +154,6 @@ async def main():
         else:
             falliti += 1
         
-        # === PAUSA TRA GLI ACCOUNT (20 secondi) ===
         if i < len(ACCOUNTS) - 1:
             log(f"   ⏳ Pausa 20 secondi prima del prossimo account...")
             await asyncio.sleep(20)
