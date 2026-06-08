@@ -5,6 +5,7 @@ import asyncio
 import os
 import random
 import gc
+import json
 from datetime import datetime
 from supabase import create_client
 from browser_use_sdk import AsyncBrowserUse
@@ -18,10 +19,10 @@ COOKIE_SUPABASE_URL = os.environ.get("COOKIE_SUPABASE_URL", "https://ofijopixtpw
 COOKIE_SUPABASE_KEY = os.environ.get("COOKIE_SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9maWpvcGl4dHB3YWhnYnd5dXRjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTkyODIxMiwiZXhwIjoyMDkxNTA0MjEyfQ.BkWb8EuUUJSUUgg3sepDmOdUzsXY7pjGjykQnPMK9q4")
 
 DEFAULT_PASSWORD = "DDnmVV45!!"
-MAX_ATTEMPTS = 5  # Tentativi massimi per account
-PAUSE_BETWEEN_ACCOUNTS = 20  # Secondi tra un account e l'altro
+MAX_ATTEMPTS = 5
+PAUSE_BETWEEN_ACCOUNTS = 20
 
-# Account EasyHits4U
+# Account
 ACCOUNTS = [
     {'email': 'sandrominori50+ulugarecexisa@gmail.com', 'name': 'ulugarecexisa'},
     {'email': 'sandrominori50+ukageluli@gmail.com', 'name': 'ukageluli'},
@@ -64,7 +65,6 @@ def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
 def get_all_working_keys():
-    """Prende tutte le chiavi working dal database"""
     try:
         supabase = create_client(KEYS_SUPABASE_URL, KEYS_SUPABASE_KEY)
         resp = supabase.table('browser_use_keys')\
@@ -79,7 +79,6 @@ def get_all_working_keys():
         return []
 
 def get_random_working_key(exclude_keys=None):
-    """Prende una chiave working casuale, escludendo quelle in exclude_keys"""
     keys = get_all_working_keys()
     if not keys:
         return None
@@ -90,7 +89,6 @@ def get_random_working_key(exclude_keys=None):
     return random.choice(keys)
 
 def update_key_status(api_key, status):
-    """Aggiorna lo status di una chiave"""
     try:
         supabase = create_client(KEYS_SUPABASE_URL, KEYS_SUPABASE_KEY)
         supabase.table('browser_use_keys')\
@@ -102,9 +100,9 @@ def update_key_status(api_key, status):
         log(f"   ❌ Errore aggiornamento status: {e}")
 
 def save_cookie_to_db(email, nome_utente, cookie_string, sesids, user_id):
-    """Salva i cookie su Supabase"""
     try:
         supabase = create_client(COOKIE_SUPABASE_URL, COOKIE_SUPABASE_KEY)
+        
         divella_format = f"{nome_utente}|{cookie_string}"
         data = {
             'email': email,
@@ -113,9 +111,11 @@ def save_cookie_to_db(email, nome_utente, cookie_string, sesids, user_id):
             'cookie_string': cookie_string,
             'sesids': sesids,
             'user_id': user_id,
+            'account_name': nome_utente,  # ← AGGIUNTO per evitare NOT NULL
             'status': 'active',
             'updated_at': datetime.now().isoformat()
         }
+        
         supabase.table('account_cookies').upsert(data, on_conflict='email').execute()
         log(f"   💾 Salvato su Supabase")
         return True
@@ -124,7 +124,6 @@ def save_cookie_to_db(email, nome_utente, cookie_string, sesids, user_id):
         return False
 
 async def generate_cookie_for_account(api_key, account):
-    """Genera cookie per un account usando una chiave specifica"""
     email = account['email']
     nome = account['name']
     
@@ -142,7 +141,7 @@ async def generate_cookie_for_account(api_key, account):
             pw_browser = await p.chromium.connect_over_cdp(browser.cdp_url)
             page = pw_browser.contexts[0].pages[0]
             
-            await page.goto("https://www.easyhits4u.com/logon/")
+            await page.goto("https://www.easyhits4u.com/logon/", timeout=60000)
             await page.wait_for_timeout(5000)
             
             await page.fill('#username', email)
@@ -195,7 +194,6 @@ async def main():
     log(f"Tentativi massimi per account: {MAX_ATTEMPTS}")
     log("=" * 60)
     
-    # Verifica chiavi disponibili
     all_keys = get_all_working_keys()
     if not all_keys:
         log("❌ Nessuna chiave working nel database")
@@ -209,14 +207,12 @@ async def main():
     for i, account in enumerate(ACCOUNTS):
         log(f"\n📌 [{i+1}/{len(ACCOUNTS)}] {account['name']}")
         
-        # Lista delle chiavi già usate in questo tentativo
         used_keys = []
         
         for attempt in range(MAX_ATTEMPTS):
-            # Prendi una chiave non ancora usata
             api_key = get_random_working_key(exclude_keys=used_keys)
             if not api_key:
-                log(f"   ❌ Nessuna chiave disponibile (tentativo {attempt+1}/{MAX_ATTEMPTS})")
+                log(f"   ❌ Nessuna chiave disponibile")
                 break
             
             result = await generate_cookie_for_account(api_key, account)
